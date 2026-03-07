@@ -17,3 +17,5 @@ node_modules
 .env.development
 .env.staging
 .env.production
+public/sw.js
+public/workbox-*.js
