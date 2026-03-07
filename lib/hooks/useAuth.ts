@@ -58,14 +58,35 @@ export function useAuth() {
   const signIn = async (email: string, password: string) => {
     setLoading(true)
     setError(null)
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    const { data: authData, error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) {
       const mapped = mapAuthError(error.message)
       setError(mapped)
       toast.error(mapped)
     } else {
-      toast.success('Authentication successful. Redirecting to dashboard.')
-      router.push('/dashboard')
+      const userId = authData.user?.id
+      let destination = '/dashboard'
+
+      if (userId) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role, onboarding_completed')
+          .eq('id', userId)
+          .single()
+
+        const isAdmin = profile?.role === 'admin'
+        const isOnboardingComplete = profile?.onboarding_completed === true
+
+        if (!isOnboardingComplete) {
+          destination = '/onboarding'
+        } else if (isAdmin) {
+          destination = '/admin'
+        }
+      }
+
+      toast.success('Authentication successful.')
+      router.push(destination)
+      router.refresh()
     }
     setLoading(false)
   }

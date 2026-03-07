@@ -75,10 +75,12 @@ export async function proxy(request: NextRequest) {
 
     const profileData = (profile ?? null) as Record<string, unknown> | null
     const onboardingComplete = isOnboardingComplete(profileData)
+    const isAdminUser = profileData?.role === 'admin'
+    const postAuthPath = isAdminUser ? '/admin' : '/dashboard'
 
     if (isAuthPage) {
       const url = request.nextUrl.clone()
-      url.pathname = onboardingComplete ? '/dashboard' : '/onboarding'
+      url.pathname = onboardingComplete ? postAuthPath : '/onboarding'
       return NextResponse.redirect(url)
     }
 
@@ -90,13 +92,19 @@ export async function proxy(request: NextRequest) {
 
     if (isOnboardingPage && onboardingComplete) {
       const url = request.nextUrl.clone()
-      url.pathname = '/dashboard'
+      url.pathname = postAuthPath
       return NextResponse.redirect(url)
     }
 
     if (isAdminPage && profileData?.role !== 'admin') {
       const url = request.nextUrl.clone()
       url.pathname = '/dashboard'
+      return NextResponse.redirect(url)
+    }
+
+    if (!isAdminPage && request.nextUrl.pathname.startsWith('/dashboard') && isAdminUser) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/admin'
       return NextResponse.redirect(url)
     }
   }
