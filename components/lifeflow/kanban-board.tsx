@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
-import { ArrowLeft, ArrowRight, CalendarClock, Search, Trash2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CalendarClock, Pencil, Search, Trash2 } from 'lucide-react';
+import { NewTaskInput, TaskModal } from '@/components/lifeflow/task-modal';
 
 type TaskStatus = 'pending' | 'in_progress' | 'completed';
 type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
@@ -27,6 +28,7 @@ interface KanbanTask {
   title: string;
   description: string;
   dueDate: string;
+  dueDateRaw: string | null;
   priority: TaskPriority;
   status: TaskStatus;
   category: string;
@@ -69,6 +71,7 @@ function mapDbTask(row: DbTaskRow): KanbanTask {
     title: row.title,
     description: row.description?.trim() || 'No details added.',
     dueDate: formatDueDate(row.due_date),
+    dueDateRaw: row.due_date,
     priority: normalizePriority(row.priority),
     status: normalizeStatus(row.status),
     category: row.task_tags?.[0]?.tags?.name?.trim() || 'Uncategorized',
@@ -84,6 +87,7 @@ export const KanbanBoard = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [priorityFilters, setPriorityFilters] = useState<TaskPriority[]>([]);
   const [taskToDelete, setTaskToDelete] = useState<KanbanTask | null>(null);
+  const [editingTask, setEditingTask] = useState<KanbanTask | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -175,6 +179,65 @@ export const KanbanBoard = () => {
     onError: (error: Error) => toast.error(error.message),
   });
 
+  const updateTaskMutation = useMutation({
+    mutationFn: async ({ taskId, updates }: { taskId: string; updates: NewTaskInput }) => {
+      if (!currentUserId) throw new Error('User session not found');
+
+      const { error: updateError } = await supabase
+        .from('tasks')
+        .update({
+          title: updates.title,
+          description: updates.description ?? null,
+          due_date: updates.dueDate ?? null,
+          priority: updates.priority,
+        })
+        .eq('id', taskId);
+
+      if (updateError) throw updateError;
+
+      const { error: clearError } = await supabase.from('task_tags').delete().eq('task_id', taskId);
+      if (clearError) throw clearError;
+
+      const category = updates.category?.trim();
+      if (!category) return;
+
+      const { data: existingTag, error: existingTagError } = await supabase
+        .from('tags')
+        .select('id')
+        .eq('user_id', currentUserId)
+        .eq('name', category)
+        .limit(1);
+
+      if (existingTagError) throw existingTagError;
+
+      let tagId = existingTag?.[0]?.id;
+      if (!tagId) {
+        const { data: newTag, error: newTagError } = await supabase
+          .from('tags')
+          .insert({
+            user_id: currentUserId,
+            name: category,
+            color: '#3b82f6',
+          })
+          .select('id')
+          .single();
+        if (newTagError || !newTag) throw new Error(newTagError?.message ?? 'Failed to create category');
+        tagId = newTag.id;
+      }
+
+      const { error: linkError } = await supabase.from('task_tags').insert({
+        task_id: taskId,
+        tag_id: tagId,
+      });
+      if (linkError) throw linkError;
+    },
+    onSuccess: async () => {
+      toast.success('Task updated');
+      await queryClient.invalidateQueries({ queryKey: ['kanban-data', currentUserId] });
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
   const filteredTasks = useMemo(() => {
     const tasks = kanbanQuery.data ?? [];
     return tasks.filter((task) => {
@@ -214,6 +277,12 @@ export const KanbanBoard = () => {
     if (!taskToDelete) return;
     await deleteTaskMutation.mutateAsync(taskToDelete.id);
     setTaskToDelete(null);
+  };
+
+  const handleUpdateTask = async (task: NewTaskInput) => {
+    if (!editingTask) return;
+    await updateTaskMutation.mutateAsync({ taskId: editingTask.id, updates: task });
+    setEditingTask(null);
   };
 
   return (
@@ -280,13 +349,22 @@ export const KanbanBoard = () => {
                             <h4 className="text-sm font-semibold text-white">{task.title}</h4>
                             <p className="mt-1 text-xs text-white/60">{task.description}</p>
                           </div>
-                          <button
-                            onClick={() => setTaskToDelete(task)}
-                            className="rounded-md border border-red-400/25 bg-red-500/10 p-1.5 text-red-200 hover:bg-red-500/20"
-                            title="Delete task"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => setEditingTask(task)}
+                              className="rounded-md border border-blue-400/25 bg-blue-500/10 p-1.5 text-blue-100 hover:bg-blue-500/20"
+                              title="Edit task"
+                            >
+                              <Pencil size={14} />
+                            </button>
+                            <button
+                              onClick={() => setTaskToDelete(task)}
+                              className="rounded-md border border-red-400/25 bg-red-500/10 p-1.5 text-red-200 hover:bg-red-500/20"
+                              title="Delete task"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
                         </div>
 
                         <div className="flex flex-wrap gap-2">
@@ -361,6 +439,22 @@ export const KanbanBoard = () => {
           </div>
         </>
       )}
+
+      <TaskModal
+        isOpen={Boolean(editingTask)}
+        onClose={() => setEditingTask(null)}
+        onSubmit={handleUpdateTask}
+        isSubmitting={updateTaskMutation.isPending}
+        mode="edit"
+        priorityOptions={['urgent', 'high', 'medium', 'low']}
+        initialTask={{
+          title: editingTask?.title ?? '',
+          priority: editingTask?.priority ?? 'medium',
+          category: editingTask?.category === 'Uncategorized' ? '' : editingTask?.category ?? '',
+          description: editingTask?.description === 'No details added.' ? '' : editingTask?.description ?? '',
+          dueDate: editingTask?.dueDateRaw ?? '',
+        }}
+      />
     </div>
   );
 };

@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { CheckCircle2, Circle, Trash2, ChevronRight } from 'lucide-react';
+import { CheckCircle2, Circle, Trash2, Pencil } from 'lucide-react';
 
 export interface Task {
   id: string;
@@ -17,6 +17,7 @@ interface TaskCardProps {
   onToggle?: (taskId: string) => void;
   onDelete?: (taskId: string) => void;
   onClick?: (taskId: string) => void;
+  onEdit?: (taskId: string) => void;
 }
 
 const priorityColors = {
@@ -31,7 +32,7 @@ const priorityLabels = {
   high: 'High',
 };
 
-export function TaskCard({ task, onToggle, onDelete, onClick }: TaskCardProps) {
+export function TaskCard({ task, onToggle, onDelete, onClick, onEdit }: TaskCardProps) {
   return (
     <div
       onClick={() => onClick?.(task.id)}
@@ -79,15 +80,32 @@ export function TaskCard({ task, onToggle, onDelete, onClick }: TaskCardProps) {
           </div>
         </div>
 
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete?.(task.id);
-          }}
-          className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-300 transition-all"
-        >
-          <Trash2 size={18} />
-        </button>
+        <div className="flex items-center gap-2">
+          {onEdit && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onEdit?.(task.id);
+              }}
+              className="rounded-full bg-blue-500/20 p-2 text-blue-200 transition-colors hover:bg-blue-500/30"
+              title="Edit task"
+            >
+              <Pencil size={16} />
+            </button>
+          )}
+          {onDelete && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete?.(task.id);
+              }}
+              className="rounded-full bg-red-500/20 p-2 text-red-200 transition-colors hover:bg-red-500/30"
+              title="Delete task"
+            >
+              <Trash2 size={16} />
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

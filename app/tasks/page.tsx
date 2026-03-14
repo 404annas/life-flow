@@ -8,7 +8,7 @@ import { QuickAddButton } from '@/components/lifeflow/quick-add-button';
 import { NewTaskInput, TaskModal } from '@/components/lifeflow/task-modal';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
-import { CalendarClock, Search, Tag } from 'lucide-react';
+import { CalendarClock, Pencil, Search, Tag } from 'lucide-react';
 
 type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'archived';
 type TaskPriority = 'low' | 'medium' | 'high';
@@ -138,6 +138,7 @@ export default function TasksPage() {
   const [selectedPriority, setSelectedPriority] = useState<'all' | TaskPriority>('all');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [editingTask, setEditingTask] = useState<TasksViewModel | null>(null);
 
   const tasksQuery = useQuery({
     queryKey: ['tasks-page-data'],
@@ -277,6 +278,71 @@ export default function TasksPage() {
     onError: (error: Error) => toast.error(error.message),
   });
 
+  const updateTaskMutation = useMutation({
+    mutationFn: async ({ taskId, updates }: { taskId: string; updates: NewTaskInput }) => {
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError || !user) throw new Error(userError?.message ?? 'User session not found');
+
+      const { error: updateError } = await supabase
+        .from('tasks')
+        .update({
+          title: updates.title,
+          description: updates.description ?? null,
+          due_date: updates.dueDate ?? null,
+          priority: updates.priority,
+        })
+        .eq('id', taskId);
+
+      if (updateError) throw updateError;
+
+      const { error: clearError } = await supabase.from('task_tags').delete().eq('task_id', taskId);
+      if (clearError) throw clearError;
+
+      const category = updates.category?.trim();
+      if (!category) return;
+
+      const { data: existingTag, error: existingTagError } = await supabase
+        .from('tags')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('name', category)
+        .limit(1);
+
+      if (existingTagError) throw existingTagError;
+
+      let tagId = existingTag?.[0]?.id;
+      if (!tagId) {
+        const { data: newTag, error: newTagError } = await supabase
+          .from('tags')
+          .insert({
+            user_id: user.id,
+            name: category,
+            color: '#3b82f6',
+          })
+          .select('id')
+          .single();
+        if (newTagError || !newTag) throw new Error(newTagError?.message ?? 'Failed to create category');
+        tagId = newTag.id;
+      }
+
+      const { error: linkError } = await supabase.from('task_tags').insert({
+        task_id: taskId,
+        tag_id: tagId,
+      });
+      if (linkError) throw linkError;
+    },
+    onSuccess: async () => {
+      toast.success('Task updated');
+      await queryClient.invalidateQueries({ queryKey: ['tasks-page-data'] });
+      await queryClient.invalidateQueries({ queryKey: ['dashboard-data'] });
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
   const deleteTaskMutation = useMutation({
     mutationFn: async (taskId: string) => {
       const { error } = await supabase.from('tasks').delete().eq('id', taskId);
@@ -334,6 +400,12 @@ export default function TasksPage() {
     if (!pendingDeleteId) return;
     await deleteTaskMutation.mutateAsync(pendingDeleteId);
     setPendingDeleteId(null);
+  };
+
+  const handleUpdateTask = async (task: NewTaskInput) => {
+    if (!editingTask) return;
+    await updateTaskMutation.mutateAsync({ taskId: editingTask.id, updates: task });
+    setEditingTask(null);
   };
 
   return (
@@ -439,6 +511,16 @@ export default function TasksPage() {
                         {task.status === 'completed' ? 'Mark Pending' : 'Mark Done'}
                       </button>
                       <button
+                        onClick={() => setEditingTask(task)}
+                        className="rounded-lg border border-blue-400/25 bg-blue-500/10 px-2.5 py-1.5 text-xs text-blue-100 hover:bg-blue-500/20"
+                        title="Edit task"
+                      >
+                        <span className="inline-flex items-center gap-1">
+                          <Pencil size={12} />
+                          Edit
+                        </span>
+                      </button>
+                      <button
                         onClick={() => setPendingDeleteId(task.id)}
                         className="rounded-lg border border-red-400/25 bg-red-500/10 px-2.5 py-1.5 text-xs text-red-200 hover:bg-red-500/20"
                       >
@@ -481,6 +563,20 @@ export default function TasksPage() {
           onClose={() => setIsModalOpen(false)}
           onSubmit={handleCreateTask}
           isSubmitting={createTaskMutation.isPending}
+        />
+        <TaskModal
+          isOpen={Boolean(editingTask)}
+          onClose={() => setEditingTask(null)}
+          onSubmit={handleUpdateTask}
+          isSubmitting={updateTaskMutation.isPending}
+          mode="edit"
+          initialTask={{
+            title: editingTask?.title ?? '',
+            priority: editingTask?.priority ?? 'medium',
+            category: editingTask?.category === 'Uncategorized' ? '' : editingTask?.category ?? '',
+            description: editingTask?.description === 'No details added.' ? '' : editingTask?.description ?? '',
+            dueDate: editingTask?.dueDateRaw ?? '',
+          }}
         />
 
         {pendingDeleteId && (

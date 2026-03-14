@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 
 export interface NewTaskInput {
   title: string;
-  priority: 'low' | 'medium' | 'high';
+  priority: 'low' | 'medium' | 'high' | 'urgent';
   category?: string;
   description?: string;
   dueDate?: string;
@@ -17,14 +17,35 @@ interface TaskModalProps {
   onClose: () => void;
   onSubmit: (task: NewTaskInput) => Promise<void> | void;
   isSubmitting?: boolean;
+  mode?: 'create' | 'edit';
+  initialTask?: Partial<NewTaskInput>;
+  priorityOptions?: Array<NewTaskInput['priority']>;
 }
 
-export function TaskModal({ isOpen, onClose, onSubmit, isSubmitting = false }: TaskModalProps) {
+export function TaskModal({
+  isOpen,
+  onClose,
+  onSubmit,
+  isSubmitting = false,
+  mode = 'create',
+  initialTask,
+  priorityOptions,
+}: TaskModalProps) {
+  const allowedPriorities = priorityOptions ?? ['low', 'medium', 'high'];
   const [title, setTitle] = useState('');
-  const [priority, setPriority] = useState<'low' | 'medium' | 'high'>('medium');
+  const [priority, setPriority] = useState<NewTaskInput['priority']>('medium');
   const [category, setCategory] = useState('');
   const [description, setDescription] = useState('');
   const [dueDate, setDueDate] = useState('');
+
+  React.useEffect(() => {
+    if (!isOpen) return;
+    setTitle(initialTask?.title ?? '');
+    setPriority(initialTask?.priority ?? 'medium');
+    setCategory(initialTask?.category ?? '');
+    setDescription(initialTask?.description ?? '');
+    setDueDate(initialTask?.dueDate ?? '');
+  }, [initialTask, isOpen]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,16 +61,12 @@ export function TaskModal({ isOpen, onClose, onSubmit, isSubmitting = false }: T
       description: description.trim() || undefined,
       dueDate: dueDate || undefined,
     });
-
-    setTitle('');
-    setPriority('medium');
-    setCategory('');
-    setDescription('');
-    setDueDate('');
     onClose();
   };
 
   if (!isOpen) return null;
+
+  const isEdit = mode === 'edit';
 
   return (
     <>
@@ -66,8 +83,10 @@ export function TaskModal({ isOpen, onClose, onSubmit, isSubmitting = false }: T
       >
         <div className="mb-6 flex items-center justify-between">
           <div>
-            <h3 className="text-2xl font-semibold text-white">New Task</h3>
-            <p className="mt-1 text-sm text-white/60">Capture what needs to get done</p>
+            <h3 className="text-2xl font-semibold text-white">{isEdit ? 'Edit Task' : 'New Task'}</h3>
+            <p className="mt-1 text-sm text-white/60">
+              {isEdit ? 'Update the details below' : 'Capture what needs to get done'}
+            </p>
           </div>
           <button
             onClick={onClose}
@@ -97,7 +116,7 @@ export function TaskModal({ isOpen, onClose, onSubmit, isSubmitting = false }: T
           <div>
             <label className="mb-2 block text-sm text-gray-400">Priority</label>
             <div className="grid grid-cols-3 gap-2">
-              {(['low', 'medium', 'high'] as const).map((p) => (
+              {allowedPriorities.map((p) => (
                 <button
                   key={p}
                   type="button"
@@ -168,7 +187,7 @@ export function TaskModal({ isOpen, onClose, onSubmit, isSubmitting = false }: T
               className="flex-1 rounded-xl bg-blue-600 px-4 py-3 font-medium text-white transition-colors hover:bg-blue-500 disabled:opacity-70"
               disabled={isSubmitting}
             >
-              {isSubmitting ? 'Creating...' : 'Create Task'}
+              {isSubmitting ? (isEdit ? 'Saving...' : 'Creating...') : isEdit ? 'Update Task' : 'Create Task'}
             </button>
           </div>
         </form>
